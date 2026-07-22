@@ -376,7 +376,7 @@ df = df[df["Revenu_M"].between(rev_range[0], rev_range[1])]
 today = datetime.today()
 st.markdown(f"""
 <div class="main-header">
-    <div class="header-badge">⚛️ STRATON</div>
+    <div class="header-badge">🪖 STRATON</div>
     <h1>STRATON — <span>Pipeline Dashboard</span></h1>
     <p>Données au {current_label} &nbsp;·&nbsp; {len(df)} leads filtrés sur {len(df_raw)}</p>
 </div>
