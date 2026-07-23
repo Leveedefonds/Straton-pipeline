@@ -4,13 +4,14 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import io, os, re
+import requests
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 st.set_page_config(
-    page_title="Reporting Straton",
-    page_icon="🪖",
+    page_title="Reporting Exergon",
+    page_icon="⚛️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -276,7 +277,7 @@ def load_data_no_cache(path: str) -> pd.DataFrame:
 
 # ─── SIDEBAR ────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown('<div style="font-family:JetBrains Mono,monospace;font-size:1rem;font-weight:700;color:#39ff14;letter-spacing:2px;padding:0.5rem 0 0.2rem">⚛ STRATON</div><div style="font-size:0.65rem;color:#4a8a4a;letter-spacing:1.5px;margin-bottom:0.5rem;font-family:JetBrains Mono,monospace">STRATON</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-family:JetBrains Mono,monospace;font-size:1rem;font-weight:700;color:#39ff14;letter-spacing:2px;padding:0.5rem 0 0.2rem">⚛ EXERGON</div><div style="font-size:0.65rem;color:#4a8a4a;letter-spacing:1.5px;margin-bottom:0.5rem;font-family:JetBrains Mono,monospace">NUCLEAR ENERGY FUND</div>', unsafe_allow_html=True)
     st.markdown("---")
     st.markdown("**📂 Fichier principal**")
     uploaded_main = st.file_uploader("Glisse ton fichier xlsx", type=["xlsx"], key="main")
@@ -295,8 +296,15 @@ with st.sidebar:
     st.markdown("**Filtres**")
 
 # ─── CHARGEMENT DEPUIS DOSSIER HISTORIQUE ──────────────────────────────────────
-def get_historique_files():
-    """Lit tous les xlsx du dossier historique/, triés par date extraite du nom."""
+def _parse_date_from_filename(name):
+    m = re.search(r"(\d{4})[-_](\d{2})[-_](\d{2})", name)
+    if m:
+        return pd.Timestamp(f"{m.group(1)}-{m.group(2)}-{m.group(3)}")
+    return None
+
+def _get_historique_files_local():
+    """Ancien comportement : lit le dossier historique/ présent dans le dépôt
+    lui-même (utilisé si aucun dépôt de données privé n'est configuré)."""
     hist_dir = "historique"
     if not os.path.exists(hist_dir):
         return []
@@ -304,18 +312,63 @@ def get_historique_files():
     for f in os.listdir(hist_dir):
         if f.endswith(".xlsx") and not f.startswith("~"):
             path = os.path.join(hist_dir, f)
-            # Extraire date du nom (format YYYY-MM-DD)
-            import re as re2
-            m = re2.search(r"(\d{4})[-_](\d{2})[-_](\d{2})", f)
-            if m:
-                date_str = f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
-                date_ts  = pd.Timestamp(date_str)
-            else:
-                date_ts = pd.Timestamp(os.path.getmtime(path), unit="s")
+            date_ts = _parse_date_from_filename(f) or pd.Timestamp(os.path.getmtime(path), unit="s")
             files.append({"path": path, "name": f, "date": date_ts,
                           "label": date_ts.strftime("%d/%m/%Y")})
     files.sort(key=lambda x: x["date"])
     return files
+
+@st.cache_data(ttl=300, show_spinner="Chargement des fichiers historiques…")
+def _get_historique_files_from_private_repo(data_repo, data_path, _token):
+    """Récupère les fichiers xlsx depuis un dépôt GitHub PRIVÉ (data_repo =
+    'Organisation/nom-du-depot'), dans le sous-dossier data_path (utile pour un
+    dépôt centralisé avec un dossier par fonds, ex. 'calderion/historique').
+    Nécessite les secrets Streamlit `github_token`, `data_repo` et `data_path`."""
+    headers = {"Authorization": f"token {_token}", "Accept": "application/vnd.github+json"}
+    api_url = f"https://api.github.com/repos/{data_repo}/contents/{data_path}"
+    resp = requests.get(api_url, headers=headers, timeout=15)
+    if resp.status_code != 200:
+        st.error(
+            f"Impossible de lire '{data_path}' dans le dépôt privé '{data_repo}' "
+            f"(code {resp.status_code}). Vérifie les secrets 'github_token', "
+            f"'data_repo' et 'data_path' dans Streamlit Cloud."
+        )
+        return []
+
+    os.makedirs("/tmp/historique_cache", exist_ok=True)
+    files = []
+    for item in resp.json():
+        name = item.get("name", "")
+        if not name.endswith(".xlsx") or name.startswith("~"):
+            continue
+        raw_resp = requests.get(
+            item["url"],
+            headers={**headers, "Accept": "application/vnd.github.raw"},
+            timeout=15,
+        )
+        if raw_resp.status_code != 200:
+            continue
+        local_path = f"/tmp/historique_cache/{name}"
+        with open(local_path, "wb") as f:
+            f.write(raw_resp.content)
+        date_ts = _parse_date_from_filename(name) or pd.Timestamp.now()
+        files.append({"path": local_path, "name": name, "date": date_ts,
+                      "label": date_ts.strftime("%d/%m/%Y")})
+    files.sort(key=lambda x: x["date"])
+    return files
+
+def get_historique_files():
+    """Bascule automatiquement : si les secrets 'github_token' et 'data_repo'
+    sont configurés, va chercher les fichiers dans le dépôt privé (dans le
+    sous-dossier 'data_path', défaut 'historique' — pratique pour un dépôt
+    centralisé avec un dossier par fonds) ; sinon, comportement historique
+    (dossier historique/ local au dépôt public)."""
+    data_repo = st.secrets.get("data_repo")
+    token = st.secrets.get("github_token")
+    data_path = st.secrets.get("data_path", "historique")
+    if data_repo and token:
+        return _get_historique_files_from_private_repo(data_repo, data_path, token)
+    return _get_historique_files_local()
 
 hist_files = get_historique_files()
 
@@ -329,8 +382,9 @@ _all_files = _os.listdir(".")
 with st.sidebar:
     with st.expander("🔍 Debug (temporaire)"):
         st.write(f"CWD: {_cwd}")
-        st.write(f"Dossier historique existe: {_exists}")
-        st.write(f"Fichiers dans historique/: {_files_in_hist}")
+        st.write(f"Source historique: {'dépôt privé (' + st.secrets.get('data_repo','') + ')' if st.secrets.get('data_repo') else 'dossier local'}")
+        st.write(f"Dossier historique local existe: {_exists}")
+        st.write(f"Fichiers dans historique/ local: {_files_in_hist}")
         st.write(f"Fichiers racine: {_all_files}")
         st.write(f"hist_files trouvés: {[h['name'] for h in hist_files]}")
 
@@ -376,8 +430,8 @@ df = df[df["Revenu_M"].between(rev_range[0], rev_range[1])]
 today = datetime.today()
 st.markdown(f"""
 <div class="main-header">
-    <div class="header-badge">🪖 STRATON</div>
-    <h1>STRATON — <span>Pipeline Dashboard</span></h1>
+    <div class="header-badge">⚛️ NUCLEAR ENERGY FUND</div>
+    <h1>EXERGON — <span>Pipeline Dashboard</span></h1>
     <p>Données au {current_label} &nbsp;·&nbsp; {len(df)} leads filtrés sur {len(df_raw)}</p>
 </div>
 """, unsafe_allow_html=True)
@@ -875,6 +929,6 @@ body { font-family: 'Space Grotesk', sans-serif; font-size: 0.79rem; background:
     st.download_button(
         "⬇️ Exporter en Excel (.xlsx)",
         data=output,
-        file_name=f"pipeline_straton_{today.strftime('%Y%m%d')}.xlsx",
+        file_name=f"pipeline_exergon_{today.strftime('%Y%m%d')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
