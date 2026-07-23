@@ -277,7 +277,7 @@ def load_data_no_cache(path: str) -> pd.DataFrame:
 
 # ─── SIDEBAR ────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown('<div style="font-family:JetBrains Mono,monospace;font-size:1rem;font-weight:700;color:#39ff14;letter-spacing:2px;padding:0.5rem 0 0.2rem">⚛ </div><div style="font-size:0.65rem;color:#4a8a4a;letter-spacing:1.5px;margin-bottom:0.5rem;font-family:JetBrains Mono,monospace">DEFENSE FUND</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-family:JetBrains Mono,monospace;font-size:1rem;font-weight:700;color:#39ff14;letter-spacing:2px;padding:0.5rem 0 0.2rem">⚛ </div><div style="font-size:0.65rem;color:#4a8a4a;letter-spacing:1.5px;margin-bottom:0.5rem;font-family:JetBrains Mono,monospace"> 🪖 DEFENSE FUND</div>', unsafe_allow_html=True)
     st.markdown("---")
     st.markdown("**📂 Fichier principal**")
     uploaded_main = st.file_uploader("Glisse ton fichier xlsx", type=["xlsx"], key="main")
